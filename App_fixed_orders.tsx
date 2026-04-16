@@ -180,32 +180,6 @@ export default function App() {
     return `Năm ${selectedYear}`;
   };
 
-  const parseOrderDate = (dateValue?: string) => {
-    if (!dateValue) return new Date('');
-
-    if (/^\d{4}-\d{2}-\d{2}$/.test(dateValue)) {
-      const [year, month, day] = dateValue.split('-').map(Number);
-      return new Date(year, month - 1, day);
-    }
-
-    if (/^\d{2}\/\d{2}\/\d{4}$/.test(dateValue)) {
-      const [day, month, year] = dateValue.split('/').map(Number);
-      return new Date(year, month - 1, day);
-    }
-
-    return new Date(dateValue);
-  };
-
-  const normalizeOrderDate = (dateValue?: string) => {
-    const parsedDate = parseOrderDate(dateValue);
-    if (Number.isNaN(parsedDate.getTime())) return new Date().toISOString().split('T')[0];
-
-    const year = parsedDate.getFullYear();
-    const month = String(parsedDate.getMonth() + 1).padStart(2, '0');
-    const day = String(parsedDate.getDate()).padStart(2, '0');
-    return `${year}-${month}-${day}`;
-  };
-
   const [selectedSalesPerson, setSelectedSalesPerson] = useState<string>('all');
   const [selectedTechnicalPerson, setSelectedTechnicalPerson] = useState<string>('all');
   const [selectedStatus, setSelectedStatus] = useState<string>('all');
@@ -414,6 +388,16 @@ export default function App() {
     return () => unsubscribes.forEach(unsub => unsub());
   }, [isAuthReady, user]);
 
+  const sortedWorkshopOrders = useMemo(() => {
+    return [...workshopOrders].sort((a, b) => {
+      const dateA = a.receivedDate ? new Date(a.receivedDate).getTime() : 0;
+      const dateB = b.receivedDate ? new Date(b.receivedDate).getTime() : 0;
+
+      if (dateA !== dateB) return dateA - dateB;
+      return (a.customer || '').localeCompare(b.customer || '', 'vi');
+    });
+  }, [workshopOrders]);
+
   const workshopAlerts = useMemo(() => {
     const today = new Date();
     today.setHours(0, 0, 0, 0);
@@ -500,36 +484,28 @@ export default function App() {
 
   // Filtering orders by month/year, staff and search term
   const filteredOrders = useMemo(() => {
-    return orders
-      .filter(order => {
-        const orderDate = parseOrderDate(order.date);
-        const orderMonth = orderDate.getMonth() + 1;
-        const orderYear = orderDate.getFullYear();
-        
-        let matchesTime = false;
-        if (viewType === 'month') {
-          matchesTime = orderMonth === selectedMonth && orderYear === selectedYear;
-        } else if (viewType === 'quarter') {
-          const quarter = Math.floor((orderMonth - 1) / 3) + 1;
-          matchesTime = quarter === selectedQuarter && orderYear === selectedYear;
-        } else {
-          matchesTime = orderYear === selectedYear;
-        }
+    return orders.filter(order => {
+      const orderDate = new Date(order.date);
+      const orderMonth = orderDate.getMonth() + 1;
+      const orderYear = orderDate.getFullYear();
+      
+      let matchesTime = false;
+      if (viewType === 'month') {
+        matchesTime = orderMonth === selectedMonth && orderYear === selectedYear;
+      } else if (viewType === 'quarter') {
+        const quarter = Math.floor((orderMonth - 1) / 3) + 1;
+        matchesTime = quarter === selectedQuarter && orderYear === selectedYear;
+      } else {
+        matchesTime = orderYear === selectedYear;
+      }
 
-        const matchesSales = selectedSalesPerson === 'all' || order.salesPerson === selectedSalesPerson;
-        const matchesTechnical = selectedTechnicalPerson === 'all' || order.technicalPerson === selectedTechnicalPerson;
-        const matchesStatus = selectedStatus === 'all' || order.status === selectedStatus;
-        const matchesSearch = order.customer.toLowerCase().includes(searchTerm.toLowerCase()) || 
-                            order.itemName.toLowerCase().includes(searchTerm.toLowerCase());
-        return matchesTime && matchesSales && matchesTechnical && matchesStatus && matchesSearch;
-      })
-      .sort((a, b) => {
-        const dateA = parseOrderDate(a.date).getTime();
-        const dateB = parseOrderDate(b.date).getTime();
-
-        if (dateA !== dateB) return dateA - dateB;
-        return a.customer.localeCompare(b.customer, 'vi');
-      });
+      const matchesSales = selectedSalesPerson === 'all' || order.salesPerson === selectedSalesPerson;
+      const matchesTechnical = selectedTechnicalPerson === 'all' || order.technicalPerson === selectedTechnicalPerson;
+      const matchesStatus = selectedStatus === 'all' || order.status === selectedStatus;
+      const matchesSearch = order.customer.toLowerCase().includes(searchTerm.toLowerCase()) || 
+                          order.itemName.toLowerCase().includes(searchTerm.toLowerCase());
+      return matchesTime && matchesSales && matchesTechnical && matchesStatus && matchesSearch;
+    });
   }, [orders, viewType, selectedMonth, selectedQuarter, selectedYear, selectedSalesPerson, selectedTechnicalPerson, selectedStatus, searchTerm]);
 
   const monthTotalRevenue = useMemo(() => {
@@ -752,7 +728,7 @@ export default function App() {
 
     return baseData.map(d => {
       const monthOrders = orders.filter(o => {
-        const date = parseOrderDate(o.date);
+        const date = new Date(o.date);
         return (date.getMonth() + 1) === d.month && date.getFullYear() === d.year && ['Đã chốt đơn', 'Đã giao hàng'].includes(o.status);
       });
       
@@ -1245,7 +1221,6 @@ export default function App() {
     };
 
     const displayData = isEditingMonthly ? tempMonthlyData : processedMonthlyData;
-    const displayMoney = (value: number) => formatNumber(Math.round(value || 0));
 
     return (
       <div className="bg-white rounded-xl shadow-sm border border-slate-100 overflow-hidden">
@@ -1311,12 +1286,12 @@ export default function App() {
                           className="w-full bg-brand-blue/5 border border-brand-blue/20 rounded px-2 py-1 text-center focus:outline-none focus:ring-2 focus:ring-brand-blue/20"
                         />
                       ) : (
-                        displayMoney(d[row.key as keyof MonthlyData] as number)
+                        formatNumber(d[row.key as keyof MonthlyData] as number)
                       )}
                     </td>
                   ))}
                   <td className={cn("p-4 text-center bg-slate-50", row.color)}>
-                    {displayMoney(displayData.reduce((a, b) => a + (b[row.key as keyof MonthlyData] as number), 0))}
+                    {formatNumber(displayData.reduce((a, b) => a + (b[row.key as keyof MonthlyData] as number), 0))}
                   </td>
                   </tr>
                   {row.showPercentage && (
@@ -1344,7 +1319,7 @@ export default function App() {
                 <td className="p-4 text-slate-900 sticky left-0 bg-slate-100 z-10 border-r border-slate-200">Tổng CP</td>
                 {displayData.map(d => {
                   const total = d.netSalary + d.pieceRateSalary + d.machineCost1 + d.machineCost2 + d.machineCost3 + d.electricity + d.rent + d.materials + d.productionMaterials;
-                  return <td key={d.month} className="p-4 text-center text-slate-900 text-base font-bold">{displayMoney(total)}</td>
+                  return <td key={d.month} className="p-4 text-center text-slate-900 text-base font-bold">{formatNumber(total)}</td>
                 })}
                 <td className="p-4 text-center text-slate-900 text-base font-bold">
                   {formatNumber(displayData.reduce((acc, d) => 
@@ -1402,7 +1377,7 @@ export default function App() {
   const handleEditOrder = (order: Order, e?: React.MouseEvent) => {
     e?.stopPropagation();
     setEditingOrder(order);
-    setNewOrder({ ...order, date: normalizeOrderDate(order.date) });
+    setNewOrder({ ...order });
     setIsAddingOrder(true);
   };
 
@@ -1416,15 +1391,13 @@ export default function App() {
       return;
     }
 
-    const normalizedOrderDate = normalizeOrderDate(newOrder.date);
-    const orderDate = parseOrderDate(normalizedOrderDate);
+    const orderDate = new Date(newOrder.date || '');
     const orderMonth = orderDate.getMonth() + 1;
     const orderYear = orderDate.getFullYear();
 
     const orderPayload: Order = {
       ...(newOrder as Order),
       id: editingOrder?.id || Math.random().toString(36).substr(2, 9),
-      date: normalizedOrderDate,
       quantityM2: Number(newOrder.quantityM2) || 0,
       quantityMD: Number(newOrder.quantityMD) || 0,
       totalAmount: Number(newOrder.totalAmount) || 0,
@@ -2363,7 +2336,7 @@ export default function App() {
               </tr>
             </thead>
             <tbody className="divide-y divide-slate-200">
-              {workshopOrders.map((orderItem, idx) => (
+              {sortedWorkshopOrders.map((orderItem, idx) => (
                 <tr key={orderItem.id} className="hover:bg-slate-50 transition-colors group">
                   <td className="p-3 text-center border-r border-slate-100 font-medium text-slate-500">
                     <div className="flex flex-col items-center gap-1">
